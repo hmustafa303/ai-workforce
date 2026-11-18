@@ -77,9 +77,39 @@ the Gemini API key (not eligible for the free tier), OpenRouter (removed at your
 5. **You stay in control.** `merge_task` refuses unless the user confirmed it, the last verification
    passed, and it ran on the exact code being merged. Your checkout must be clean and on the same branch.
 
+### Automatic model switching (difficulty tiers)
+Every task gets a difficulty: `light`, `standard` or `heavy`. By default it's picked from the
+brief by simple rules, with no LLM call and no tokens spent: "typo/rename/docstring/summary" → light;
+"auth/payment/refactor/migration/concurrency/security/performance", long briefs, many files → heavy.
+Claude can also set it (`difficulty=`). Each tier picks its own models:
+
+| Tier | Codex reasoning effort | CrewAI chain (research) | CrewAI chain (coding) |
+|---|---|---|---|
+| light | `low` | gpt-oss-20b → qwen3.8-27b → llama3.2:3b | qwen3.8-27b → gpt-oss-20b → qwen2.5-coder:3b |
+| standard | `medium` | qwen3.8-27b → gpt-oss-20b → llama3.2:3b | gpt-oss-120b → qwen3.8-27b → qwen2.5-coder:3b |
+| heavy | `high` | gpt-oss-120b → qwen3.8-27b → llama3.2:3b | gpt-oss-120b → qwen3.8-27b → qwen2.5-coder:3b |
+
+- **Escalation:** every `revise_task` round moves the task one tier up (`escalate_on_revise` in policies).
+- **Rate limits:** Groq limits are per model, so each chain tries a second Groq model before the slow local one.
+- Change everything in `config/models.yaml` (`<chain>@<tier>`) and `config/engines.yaml` (`effort`, `tier_models`).
+
+### Using it from the Claude terminal, in any project
+The MCP server is registered at user level, and `~/.claude/CLAUDE.md` tells Claude, in every project,
+to delegate the bulk work and only plan and verify itself. That's where the token saving comes from.
+```powershell
+cd C:\path\to\any-project
+claude                       # then just ask, e.g. "add pagination to the users page"
+```
+If the project isn't allowed yet, Claude asks you and then calls `allow_project`
+(or run `uv run python -m workforce allow C:\path\to\project` yourself).
+
+**What it saves, honestly:** Claude still spends tokens on planning, reading `get_task`/diffs and
+checking. It saves the big part: writing and rewriting the code, tests and research. Very small
+edits are cheaper for Claude to do directly than to delegate and review.
+
 ### MCP tools Claude gets (in every project)
 `workforce_doctor`, `list_roles`, `delegate_task`, `get_task`, `task_diff`, `verify_task`,
-`revise_task`, `list_tasks`, `cancel_task`, `merge_task`, `cleanup_task`.
+`revise_task`, `list_tasks`, `cancel_task`, `merge_task`, `cleanup_task`, `allow_project`.
 Prompts: `/mcp__workforce__delegate`, `/mcp__workforce__verify`.
 The Parent's operating rules ride along in the server's instructions, so they apply in every project.
 
@@ -99,7 +129,9 @@ uv run python -m workforce revise <id> "exact errors / what to change"
 uv run python -m workforce merge <id> --yes        # only after YOU decided to merge
 uv run python -m workforce cleanup <id>            # remove worktree (+ branch if merged or empty)
 uv run python -m workforce cancel <id>
-uv run python -m workforce report                  # usage per role / engine / model
+uv run python -m workforce report                  # usage per role / engine / tier / model
+uv run python -m workforce allow C:\path\to\repo   # let workers work on a project
+uv run python -m workforce run coder "..." --difficulty heavy   # force a tier
 uv run python -m workforce models | probe | smoke | bench | engine-test   # provider/engine tools
 uv run python -m pytest -q                         # offline tests
 ```

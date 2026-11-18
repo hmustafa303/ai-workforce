@@ -90,6 +90,16 @@ def check_project_allowed(settings: Settings, project: Path | str) -> Path:
     return p
 
 
+def is_local_only(settings: Settings, project_path: Path | str | None = None) -> bool:
+    privacy = settings.policies.privacy
+    if privacy.default_local_only:
+        return True
+    if project_path is None:
+        return False
+    target = Path(project_path).resolve()
+    return any(target.is_relative_to(Path(p).resolve()) for p in privacy.local_only_projects)
+
+
 def is_denied(rel_path: str, denied_globs: list[str]) -> bool:
     rel = PurePosixPath(rel_path.replace("\\", "/"))
     return any(rel.full_match(g) for g in denied_globs)

@@ -59,9 +59,22 @@ class Engine(ABC):
     #: False when the tool cannot be confined to the workdir on this OS.
     supports_write: bool = True
 
-    def __init__(self, name: str, spec: EngineSpec):
+    def __init__(self, name: str, spec: EngineSpec, tier: str | None = None):
         self.name = name
         self.spec = spec
+        self.tier = tier  # difficulty tier: picks effort / model from the spec
+
+    @property
+    def model(self) -> str | None:
+        return self.spec.model_for(self.tier)
+
+    @property
+    def effort(self) -> str | None:
+        return self.spec.effort.get(self.tier) if self.tier else None
+
+    def label(self) -> str:
+        parts = [p for p in (self.model, f"effort={self.effort}" if self.effort else None) if p]
+        return self.name + (f" ({', '.join(parts)})" if parts else "")
 
     @abstractmethod
     def resolve_binary(self) -> Path:

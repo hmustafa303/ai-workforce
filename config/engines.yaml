@@ -12,6 +12,10 @@ engines:
     binary: null            # null = auto-detect (PATH, then the VS Code ChatGPT extension)
     model: null             # null = your ChatGPT plan's default model
     timeout_seconds: 1200
+    # Reasoning effort per task difficulty (passed as -c model_reasoning_effort=...).
+    # Higher effort = better on hard tasks, but slower and uses more of your plan.
+    effort: {light: low, standard: medium, heavy: high}
+    # tier_models: {light: gpt-5.6-luna}   # optional: a different model per tier
 
   cursor:
     # READ-ONLY on Windows (planning, review, analysis). Live tests showed its

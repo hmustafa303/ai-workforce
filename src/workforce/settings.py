@@ -17,6 +17,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_FILES = ("models", "agents", "policies")
 KNOWN_TOOLS = frozenset({"web_search", "fs_read", "worktree_write"})
+# Task difficulty tiers. A chain "<name>@<tier>" in models.yaml, if present, is used
+# for that tier instead of "<name>".
+TIERS = ("light", "standard", "heavy")
+Tier = Literal["light", "standard", "heavy"]
 WRITE_TOOLS = frozenset({"worktree_write"})
 
 
@@ -83,6 +87,11 @@ class ModelsConfig(_Strict):
     def chain_has_local(self, chain: str) -> bool:
         return any(self.providers[self.models[m].provider].local for m in self.chains[chain])
 
+    def chain_for(self, chain: str, tier: str | None) -> str:
+        """The chain to use for a difficulty tier: "<chain>@<tier>" if defined."""
+        tiered = f"{chain}@{tier}"
+        return tiered if tier and tiered in self.chains else chain
+
 
 # ---------- agents.yaml ----------
 
@@ -119,6 +128,8 @@ class TaskPolicy(_Strict):
     timeout_seconds: int = Field(default=1800, gt=0)
     max_concurrent: int = Field(default=1, ge=1)
     verify_timeout_seconds: int = Field(default=900, gt=0)  # per verification command
+    # Each revise round moves the task one difficulty tier up (light -> standard -> heavy).
+    escalate_on_revise: bool = True
 
 
 class PathPolicy(_Strict):
@@ -153,6 +164,12 @@ class EngineSpec(_Strict):
     binary: str | None = None  # None = auto-detect
     model: str | None = None
     timeout_seconds: int = Field(default=1200, gt=0)
+    # Per difficulty tier (light / standard / heavy): reasoning effort and model.
+    effort: dict[Tier, str] = Field(default_factory=dict)
+    tier_models: dict[Tier, str] = Field(default_factory=dict)
+
+    def model_for(self, tier: str | None) -> str | None:
+        return self.tier_models.get(tier, self.model) if tier else self.model
 
 
 class EnginesConfig(_Strict):

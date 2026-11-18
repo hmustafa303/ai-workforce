@@ -51,7 +51,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     commit_sha    TEXT,
     verification  TEXT,
     merged_at     REAL,
-    cleaned_at    REAL
+    cleaned_at    REAL,
+    tier          TEXT,
+    tier_reason   TEXT
 );
 CREATE TABLE IF NOT EXISTS events (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,6 +107,8 @@ class Task:
     verification: dict | None = None
     merged_at: float | None = None
     cleaned_at: float | None = None
+    tier: str | None = None          # light | standard | heavy
+    tier_reason: str | None = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> Task:
@@ -128,9 +132,10 @@ class Ledger:
             c.executescript(_SCHEMA)
             # Add columns introduced after a ledger file was first created.
             have = {r["name"] for r in c.execute("PRAGMA table_info(tasks)")}
-            for col in ("cleaned_at",):
+            for col, kind in (("cleaned_at", "REAL"), ("tier", "TEXT"),
+                              ("tier_reason", "TEXT")):
                 if col not in have:
-                    c.execute(f"ALTER TABLE tasks ADD COLUMN {col} REAL")
+                    c.execute(f"ALTER TABLE tasks ADD COLUMN {col} {kind}")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -254,14 +259,15 @@ class Ledger:
     def stats(self) -> list[dict]:
         """Per role/engine/model: counts, success rate, average seconds."""
         sql = """
-            SELECT role, engine, COALESCE(model_used, '-') AS model,
+            SELECT role, engine, COALESCE(tier, '-') AS tier,
+                   COALESCE(model_used, '-') AS model,
                    COUNT(*) AS tasks,
                    SUM(status IN ('done', 'merged')) AS succeeded,
                    SUM(status = 'failed') AS failed,
                    SUM(status = 'merged') AS merged,
                    ROUND(AVG(seconds), 1) AS avg_seconds,
                    SUM(revision) AS revisions
-            FROM tasks GROUP BY role, engine, model ORDER BY tasks DESC
+            FROM tasks GROUP BY role, engine, tier, model ORDER BY tasks DESC
         """
         with self._conn() as c:
             return [dict(r) for r in c.execute(sql)]

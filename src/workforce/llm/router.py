@@ -17,13 +17,13 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from crewai import LLM
 from crewai.llms.base_llm import BaseLLM
 from pydantic import PrivateAttr
 
+from workforce.sandbox import is_local_only  # noqa: F401 - re-exported
 from workforce.settings import ModelSpec, Provider, Settings, secret_present
 
 # A one-off malformed tool call by the model (Groq: HTTP 400 tool_use_failed).
@@ -91,16 +91,6 @@ def classify_error(exc: BaseException) -> str:
 def retry_after_seconds(exc: BaseException) -> float | None:
     match = _RETRY_AFTER.search(str(exc))
     return float(match.group(1)) if match else None
-
-
-def is_local_only(settings: Settings, project_path: Path | str | None = None) -> bool:
-    privacy = settings.policies.privacy
-    if privacy.default_local_only:
-        return True
-    if project_path is None:
-        return False
-    target = Path(project_path).resolve()
-    return any(target.is_relative_to(Path(p).resolve()) for p in privacy.local_only_projects)
 
 
 def candidates(settings: Settings, chain: str | None = None, *,

@@ -10,6 +10,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from workforce.settings import TIERS
 from workforce.tasks import TaskError, Workforce
 
 INSTRUCTIONS = """\
@@ -17,7 +18,10 @@ You are the PARENT of an AI workforce. Child workers (CrewAI agents on Groq/Olla
 the Codex CLI which can write code, the Cursor CLI which is read-only) do the bulk work.
 Loop for every request:
 1. Understand: restate the requirement; write acceptance criteria a command can check.
-2. Plan: split into tasks, pick a role per task (list_roles). Small/sensitive work: do it yourself.
+2. Plan: split into tasks, pick a role per task (list_roles). Delegate the bulk work (code,
+   tests, research, reviews) to save your own tokens; do tiny or sensitive work yourself.
+   Difficulty is picked automatically (light/standard/heavy); override it when you know better.
+   A project must be allowed first: if delegate_task says so, ask the user, then allow_project.
 3. Delegate: delegate_task with precise instructions, context_files and acceptance_criteria.
    Tasks run in the background; poll get_task (local models can take minutes).
 4. Verify independently: the worker's report is only a CLAIM. Read task_diff, look hard at
@@ -33,12 +37,22 @@ check yourself in this session.
 
 mcp = FastMCP("workforce", instructions=INSTRUCTIONS)
 _wf: Workforce | None = None
+_cfg_stamp: float = 0.0
+
+
+def _config_stamp() -> float:
+    from workforce.settings import PROJECT_ROOT
+
+    files = list((PROJECT_ROOT / "config").glob("*.yaml"))
+    return max((f.stat().st_mtime for f in files), default=0.0)
 
 
 def _workforce() -> Workforce:
-    global _wf
-    if _wf is None:
-        _wf = Workforce()
+    """The service, reloaded whenever a config/*.yaml file changed."""
+    global _wf, _cfg_stamp
+    stamp = _config_stamp()
+    if _wf is None or stamp != _cfg_stamp:
+        _wf, _cfg_stamp = Workforce(), stamp
     return _wf
 
 
@@ -70,11 +84,18 @@ def list_roles() -> dict:
     for name, a in s.agents.agents.items():
         chain = " -> ".join(f"{s.models.models[m].provider}/{s.models.models[m].model}"
                             for m in s.models.chains[a.chain])
+        tiers = {}
+        for tier in TIERS:
+            c = s.models.chain_for(a.chain, tier)
+            tiers[tier] = " -> ".join(s.models.models[m].model or "?"
+                                      for m in s.models.chains[c])
         roles[name] = {"role": a.role, "goal": a.goal, "default_engine": a.engine,
                        "writes_code": a.allow_write and wf._engine_can_write(a.engine),
-                       "crew_chain": chain}
+                       "crew_chain": chain, "crew_models_by_difficulty": tiers}
     engines = {n: {"type": e.type, "enabled": e.enabled,
-                   "can_write": wf._engine_can_write(n)} for n, e in s.engines.engines.items()}
+                   "can_write": wf._engine_can_write(n),
+                   "effort_by_difficulty": dict(e.effort),
+                   "model": e.model or "plan default"} for n, e in s.engines.engines.items()}
     return {"roles": roles, "engines": {"crew": {"can_write": True}, **engines},
             "allowed_project_roots": [str(p) for p in s.policies.paths.allowed_project_roots],
             "max_revisions": s.policies.tasks.max_revisions}
@@ -84,7 +105,7 @@ def list_roles() -> dict:
 def delegate_task(role: str, instructions: str, project_path: str | None = None,
                   acceptance_criteria: list[str] | None = None,
                   context_files: list[str] | None = None, engine: str | None = None,
-                  title: str | None = None) -> dict:
+                  difficulty: str = "auto", title: str | None = None) -> dict:
     """Start a worker task in the background. Returns the task id immediately.
 
     role: e.g. research, coder, uiux, qa, reviewer (see list_roles).
@@ -93,12 +114,17 @@ def delegate_task(role: str, instructions: str, project_path: str | None = None,
     acceptance_criteria: checkable statements, ideally commands that must pass.
     context_files: paths relative to project_path that the worker should read first.
     engine: override the role's default: 'crew' (Groq/Ollama), 'codex' (writes), 'cursor'
-      (read-only review)."""
+      (read-only review).
+    difficulty: 'auto' (default: rules pick light/standard/heavy from the brief), or set it.
+      light = small fast model / low reasoning effort, heavy = biggest model / high effort.
+      Each revise_task round moves one tier up automatically."""
     def run():
         t = _workforce().delegate(role, instructions, project_path=project_path,
                                   engine=engine, acceptance=acceptance_criteria,
-                                  context_files=context_files, title=title)
+                                  context_files=context_files, title=title,
+                                  difficulty=difficulty)
         return {"task_id": t.id, "status": t.status, "engine": t.engine, "write": t.write,
+                "difficulty": t.tier, "difficulty_why": t.tier_reason,
                 "worktree": t.worktree, "branch": t.branch,
                 "next_step": "poll get_task(task_id) until status is done or failed"}
     return _safe(run)
@@ -150,6 +176,16 @@ def list_tasks(status: str | None = None, limit: int = 30) -> dict:
     """Recent tasks from the ledger (optionally filtered by status: queued, running, done,
     failed, cancelled, merged)."""
     return _safe(lambda: {"tasks": _workforce().list(status, limit)})
+
+
+@mcp.tool()
+def allow_project(project_path: str, user_confirmed: bool = False) -> dict:
+    """Let workers work on a git project (adds it to allowed_project_roots).
+    Ask the user first ("May the workforce work on <path>?"); only then user_confirmed=true."""
+    if not user_confirmed:
+        return {"error": "ask the user whether the workforce may work on this project, then "
+                         "call again with user_confirmed=true"}
+    return _safe(_workforce().allow_project, project_path)
 
 
 @mcp.tool()

@@ -8,7 +8,7 @@ from workforce.tasks import Workforce
 
 EXPECTED = {"workforce_doctor", "list_roles", "delegate_task", "get_task", "task_diff",
             "verify_task", "revise_task", "list_tasks", "cancel_task", "merge_task",
-            "cleanup_task"}
+            "cleanup_task", "allow_project"}
 
 
 def _call(name, args):
@@ -26,7 +26,12 @@ def test_tools_and_prompts_registered():
 
 
 def test_errors_come_back_as_data(cfg_root, monkeypatch):
-    monkeypatch.setattr(mcp_server, "_wf", Workforce(load_settings(cfg_root)))
+    wf = Workforce(load_settings(cfg_root))
+    monkeypatch.setattr(mcp_server, "_wf", wf)
+    monkeypatch.setattr(mcp_server, "_cfg_stamp", mcp_server._config_stamp())
+    assert mcp_server._workforce() is wf  # no reload while config is unchanged
+    out = _call("allow_project", {"project_path": str(cfg_root)})
+    assert "ask the user" in out["error"]
     out = _call("delegate_task", {"role": "coder", "instructions": "x"})
     assert "project_path is required" in out["error"]
     out = _call("get_task", {"task_id": "nope"})

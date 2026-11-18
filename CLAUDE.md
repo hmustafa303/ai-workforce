@@ -13,7 +13,11 @@ They run on free or local models (Gemini free tier, Ollama). Full design: `PLAN.
 - The `workforce` MCP server is registered at user level: `delegate_task`, `get_task`, `task_diff`,
   `verify_task`, `revise_task`, `merge_task`, `cleanup_task`, `cancel_task`, `list_tasks`,
   `list_roles`, `workforce_doctor`. The CLI offers the same operations.
-- A project must be listed in `policies.paths.allowed_project_roots` before workers may touch it.
+- A project must be listed in `policies.paths.allowed_project_roots` before workers may touch it
+  (`allow_project` after asking the user).
+- Difficulty tiers (light/standard/heavy) pick CrewAI chains (`<chain>@<tier>`) and Codex
+  reasoning effort; auto-classified from the brief, escalated one tier per revise round.
+- `~/.claude/CLAUDE.md` carries the delegate-to-save-tokens rules into every project.
 - In `get_task`, treat `quality_warning` (answer came from a small local fallback model) and
   `source_check.NOT_returned_by_any_search` (cited URLs no search returned) as red flags.
 

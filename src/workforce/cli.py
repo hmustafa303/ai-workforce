@@ -60,6 +60,11 @@ def main(argv: list[str] | None = None) -> int:
                      help="context file relative to the project (repeatable)")
     run.add_argument("--background", action="store_true",
                      help="start a background worker and return the task id")
+    run.add_argument("--difficulty", default="auto",
+                     choices=["auto", "light", "standard", "heavy"],
+                     help="model size / reasoning effort (default: picked from the brief)")
+    al = sub.add_parser("allow", help="let workers work on a git project folder")
+    al.add_argument("path")
 
     rt = sub.add_parser("run-task", help=argparse.SUPPRESS)  # internal: the worker process
     rt.add_argument("task_id")
@@ -102,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
         "cleanup": lambda: _task_op("cleanup", args.task_id,
                                     delete_unmerged_branch=args.delete_branch),
         "report": _cmd_report,
+        "allow": lambda: _task_op("allow_project", args.path),
         "mcp": _cmd_mcp,
         "doctor": lambda: _cmd_doctor(as_json=args.json, live=not args.quick),
         "config": _cmd_config,
@@ -153,11 +159,13 @@ def _cmd_run(args) -> int:
     try:
         t = wf.delegate(args.role, args.instructions, project_path=args.project,
                         engine=args.engine, acceptance=args.accept,
-                        context_files=args.context, start=args.background)
+                        context_files=args.context, difficulty=args.difficulty,
+                        start=args.background)
     except TaskError as exc:
         print(f"REFUSED: {exc}")
         return 1
-    print(f"task {t.id}: {t.role} via {t.engine} (write={t.write})"
+    print(f"task {t.id}: {t.role} via {t.engine} (write={t.write}, difficulty={t.tier})"
+          f"\nwhy: {t.tier_reason}"
           + (f"\nworktree: {t.worktree}" if t.worktree else ""))
     if args.background:
         print(f"running in the background: `workforce task {t.id}`")
@@ -227,12 +235,12 @@ def _cmd_report() -> int:
     if not rows:
         print("no tasks yet")
         return 0
-    print(f"{'role':<9} {'engine':<7} {'model':<42} {'tasks':>5} {'ok':>4} {'fail':>4} "
+    print(f"{'role':<9} {'engine':<7} {'tier':<8} {'model':<36} {'tasks':>5} {'ok':>4} {'fail':>4} "
           f"{'merged':>6} {'avg s':>7} {'revs':>4}")
     for r in rows:
-        print(f"{r['role']:<9} {r['engine']:<7} {r['model'][:42]:<42} {r['tasks']:>5} "
-              f"{r['succeeded'] or 0:>4} {r['failed'] or 0:>4} {r['merged'] or 0:>6} "
-              f"{r['avg_seconds'] or 0:>7} {r['revisions'] or 0:>4}")
+        print(f"{r['role']:<9} {r['engine']:<7} {r['tier']:<8} {r['model'][:36]:<36} "
+              f"{r['tasks']:>5} {r['succeeded'] or 0:>4} {r['failed'] or 0:>4} "
+              f"{r['merged'] or 0:>6} {r['avg_seconds'] or 0:>7} {r['revisions'] or 0:>4}")
     return 0
 
 
@@ -267,6 +275,14 @@ def _cmd_config() -> int:
         print(f"          chain '{agent.chain}': {' -> '.join(steps)}")
         print(f"          engine: {agent.engine}  tools: {', '.join(agent.tools) or '-'}  "
               f"write: {agent.allow_write}")
+        for tier in ("light", "standard", "heavy"):
+            c = s.models.chain_for(agent.chain, tier)
+            models = " -> ".join(s.models.models[m].model or "?" for m in s.models.chains[c])
+            effort = ""
+            eng = s.engines.engines.get(agent.engine)
+            if eng and eng.effort.get(tier):
+                effort = f"   | {agent.engine} effort={eng.effort[tier]}"
+            print(f"          {tier:<8} crew: {models}{effort}")
     return 0
 
 

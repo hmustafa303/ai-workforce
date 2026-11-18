@@ -10,7 +10,7 @@ from workforce.settings import Settings
 ADAPTERS: dict[str, type[Engine]] = {"codex": CodexEngine, "cursor": CursorEngine}
 
 
-def get_engine(settings: Settings, name: str) -> Engine:
+def get_engine(settings: Settings, name: str, tier: str | None = None) -> Engine:
     spec = settings.engines.engines.get(name)
     if spec is None:
         known = ", ".join(settings.engines.engines) or "none"
@@ -18,7 +18,7 @@ def get_engine(settings: Settings, name: str) -> Engine:
     adapter = ADAPTERS.get(spec.type)
     if adapter is None:
         raise EngineUnavailable(f"no adapter for engine type '{spec.type}' yet")
-    return adapter(name, spec)
+    return adapter(name, spec, tier)
 
 
 def provider_secret_names(settings: Settings) -> set[str]:

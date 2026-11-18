@@ -24,6 +24,7 @@ providers:
 
 models:
   # Chosen 2026-11-18 with `workforce probe` (real test prompts) and `workforce bench`.
+  cloud_light:   {provider: groq,   model: openai/gpt-oss-20b,  temperature: 0.3}
   cloud_fast:    {provider: groq,   model: qwen/qwen3.8-27b,    temperature: 0.3}
   cloud_code:    {provider: groq,   model: openai/gpt-oss-120b, temperature: 0.1}
   local_general: {provider: ollama, model: llama3.2:3b,         temperature: 0.3}
@@ -31,8 +32,23 @@ models:
   # Local benchmark on Ryzen 5 7430U, CPU only (gen tokens/s): qwen2.5-coder:3b 17.0,
   # llama3.2:3b 15.7, qwen3.5:4b 9.4 (slower, but use it when quality matters)
 
+# Fallback chains. "<chain>@<tier>" is used for that difficulty tier
+# (light / standard / heavy); plain "<chain>" is the standard tier.
+# Groq rate limits are per model, so each chain tries a second Groq model
+# before the (slow, weaker) local Ollama model.
 chains:
-  research: [cloud_fast, local_general]
-  coding:   [cloud_code, local_coder]
-  uiux:     [cloud_fast, local_general]
-  qa:       [local_general, cloud_fast]
+  research:        [cloud_fast, cloud_light, local_general]
+  research@light:  [cloud_light, cloud_fast, local_general]
+  research@heavy:  [cloud_code, cloud_fast, local_general]
+
+  coding:          [cloud_code, cloud_fast, local_coder]
+  coding@light:    [cloud_fast, cloud_light, local_coder]
+  coding@heavy:    [cloud_code, cloud_fast, local_coder]
+
+  uiux:            [cloud_fast, cloud_code, local_general]
+  uiux@light:      [cloud_light, cloud_fast, local_general]
+  uiux@heavy:      [cloud_code, cloud_fast, local_general]
+
+  qa:              [cloud_fast, cloud_light, local_general]
+  qa@light:        [cloud_light, local_general, cloud_fast]
+  qa@heavy:        [cloud_code, cloud_fast, local_general]

@@ -20,7 +20,7 @@ from pathlib import Path
 
 from workforce import sandbox
 from workforce.ledger import ACTIVE, Ledger, Task, new_task_id
-from workforce.settings import Settings
+from workforce.settings import TIERS, Settings
 
 MAX_INLINE_CONTEXT = 8_000      # chars per context file inlined for CrewAI workers
 MAX_INLINE_TOTAL = 30_000
@@ -105,7 +105,7 @@ class Workforce:
     def delegate(self, role: str, instructions: str, *, project_path: str | None = None,
                  engine: str | None = None, acceptance: list[str] | None = None,
                  context_files: list[str] | None = None, title: str | None = None,
-                 start: bool = True) -> Task:
+                 difficulty: str = "auto", start: bool = True) -> Task:
         s = self.settings
         agent = s.agents.agents.get(role)
         if agent is None:
@@ -125,9 +125,7 @@ class Workforce:
                 sandbox.check_project_allowed(s, project)
             except sandbox.SandboxError as exc:
                 raise TaskError(str(exc)) from None
-            from workforce.llm.router import is_local_only
-
-            local_only = is_local_only(s, project)
+            local_only = sandbox.is_local_only(s, project)
         if local_only and engine != CREW:
             raise TaskError(f"project is local-only (privacy policy): engine '{engine}' is a "
                             f"cloud tool. Use engine='crew', which then runs on Ollama only.")
@@ -152,6 +150,16 @@ class Workforce:
             instructions=instructions.strip(), acceptance=list(acceptance or []),
             context_files=files, project_path=str(project) if project else None,
             write=write, local_only=local_only)
+        if difficulty == "auto":
+            from workforce.difficulty import classify
+
+            task.tier, reasons = classify(instructions, role=role, write=write,
+                                          acceptance=task.acceptance, context_files=files)
+            task.tier_reason = "auto: " + "; ".join(reasons)
+        elif difficulty in TIERS:
+            task.tier, task.tier_reason = difficulty, "set by the Parent"
+        else:
+            raise TaskError(f"difficulty must be auto, {', '.join(TIERS)}")
         warnings = []
         if project is not None:
             dirty = sandbox.dirty_files(project)
@@ -272,7 +280,7 @@ class Workforce:
         from workforce.engines import get_engine
         from workforce.engines.registry import provider_secret_names
 
-        engine = get_engine(self.settings, t.engine)
+        engine = get_engine(self.settings, t.engine, t.tier)
         res = engine.run(prompt, workdir, write=t.write,
                          secret_names=provider_secret_names(self.settings),
                          timeout=self.settings.policies.tasks.timeout_seconds)
@@ -280,7 +288,7 @@ class Workforce:
         if not res.ok:
             error = ("timed out" if res.timed_out else f"exit code {res.exit_code}") + \
                     f"; log tail: {res.log_tail[-800:]}"
-        label = f"{t.engine}" + (f"/{engine.spec.model}" if engine.spec.model else "")
+        label = engine.label()
         return res.ok, res.final_message, label, error
 
     def _run_crew(self, t: Task, prompt: str, workdir: Path) -> tuple[str, str | None]:
@@ -297,7 +305,8 @@ class Workforce:
 
         s = self.settings
         spec = s.agents.agents[t.role]
-        llm = build_llm(s, spec.chain, local_only=t.local_only)
+        chain = s.models.chain_for(spec.chain, t.tier)
+        llm = build_llm(s, chain, local_only=t.local_only)
         tools = build_tools(spec.tools, workdir=Path(t.worktree) if t.worktree else None,
                             denied_globs=s.policies.paths.denied_globs, allow_write=t.write,
                             search_log=self.runs_dir / t.id / SEARCH_LOG)
@@ -390,6 +399,7 @@ class Workforce:
             "project": t.project_path, "worktree": t.worktree, "branch": t.branch,
             "base_branch": t.base_branch, "base_ref": t.base_ref,
             "revision": f"{t.revision}/{max_rev}", "attempts": t.attempts,
+            "difficulty": t.tier, "difficulty_why": t.tier_reason,
             "model_used": t.model_used, "seconds": t.seconds, "error": t.error,
             "acceptance": t.acceptance,
             "worker_report_CLAIM": (t.result or "")[:8000],
@@ -512,7 +522,14 @@ class Workforce:
                                 f"yourself or ask the user")
         rev = t.revision + 1
         self.ledger.add_feedback(task_id, rev, feedback.strip())
-        self.ledger.update(task_id, status="queued", revision=rev, finished_at=None,
+        tier = t.tier
+        if self.settings.policies.tasks.escalate_on_revise and t.tier:
+            from workforce.difficulty import escalate
+
+            tier = escalate(t.tier)
+            if tier != t.tier:
+                self.ledger.event(task_id, "escalated", f"{t.tier} -> {tier}")
+        self.ledger.update(task_id, status="queued", revision=rev, finished_at=None, tier=tier,
                            verification=None, error=None)
         self.ledger.event(task_id, "revise", f"round {rev}/{limit}")
         self.spawn(task_id)
@@ -583,6 +600,53 @@ class Workforce:
         self.ledger.update(task_id, cleaned_at=time.time())
         self.ledger.event(task_id, "cleaned", "; ".join(notes))
         return {"cleaned": True, "notes": notes}
+
+    def allow_project(self, path: str) -> dict:
+        """Add a git project to policies.paths.allowed_project_roots (comments kept)."""
+        import re
+
+        from workforce.settings import ConfigError
+
+        p = Path(path).expanduser().resolve()
+        if not p.is_dir():
+            raise TaskError(f"folder does not exist: {p}")
+        try:
+            p = sandbox.repo_root(p)
+        except sandbox.SandboxError as exc:
+            raise TaskError(str(exc)) from None
+        s = self.settings
+        if p == s.root.resolve() or p.is_relative_to(s.root.resolve()):
+            raise TaskError("workers may not work on the ai-workforce repo itself")
+        roots = [s.resolve(Path(r)).resolve() for r in s.policies.paths.allowed_project_roots]
+        if any(p.is_relative_to(r) for r in roots):
+            return {"allowed": True, "project": str(p), "note": "already allowed"}
+
+        cfg = s.root / "config" / "policies.yaml"
+        original = cfg.read_text(encoding="utf-8")
+        lines = original.splitlines()
+        key = re.compile(r"^(\s*)allowed_project_roots:\s*(\[\s*\])?\s*(#.*)?$")
+        idx = next((i for i, line in enumerate(lines) if key.match(line)), None)
+        if idx is None:
+            raise TaskError("allowed_project_roots not found in config/policies.yaml")
+        m = key.match(lines[idx])
+        indent, entry = m.group(1), f"{m.group(1)}  - {p.as_posix()}"
+        if m.group(2):  # "allowed_project_roots: []"
+            lines[idx] = f"{indent}allowed_project_roots:" + (f"  {m.group(3)}" if m.group(3)
+                                                             else "")
+            lines.insert(idx + 1, entry)
+        else:
+            j = idx + 1
+            while j < len(lines) and lines[j].strip().startswith("- "):
+                j += 1
+            lines.insert(j, entry)
+        cfg.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        try:
+            self.settings = Settings.load(s.root, load_env=False)
+        except ConfigError as exc:
+            cfg.write_text(original, encoding="utf-8")
+            raise TaskError(f"config became invalid, change undone: {exc}") from None
+        return {"allowed": True, "project": str(p),
+                "note": "added to config/policies.yaml allowed_project_roots"}
 
     def list(self, status: str | None = None, limit: int = 30) -> list[dict]:
         return [{"id": t.id, "status": t.status, "role": t.role, "engine": t.engine,

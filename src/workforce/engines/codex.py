@@ -44,8 +44,10 @@ class CodexEngine(Engine):
             "--ephemeral",
             "--output-last-message", str(out_file),
         ]
-        if self.spec.model:
-            cmd += ["--model", self.spec.model]
+        if self.model:
+            cmd += ["--model", self.model]
+        if self.effort:
+            cmd += ["-c", f'model_reasoning_effort="{self.effort}"']
         cmd.append("-")  # read the prompt from stdin
         return cmd
 

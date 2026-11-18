@@ -69,8 +69,8 @@ class CursorEngine(Engine):
         cmd = [str(binary), str(binary.parent / "index.js"),
                "--print", "--output-format", "json", "--trust",
                "--workspace", str(workdir), "--mode", "ask"]
-        if self.spec.model:
-            cmd += ["--model", self.spec.model]
+        if self.model:
+            cmd += ["--model", self.model]
         return cmd  # prompt is read from stdin
 
     def extra_env(self) -> dict[str, str]:

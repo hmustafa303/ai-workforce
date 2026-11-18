@@ -8,7 +8,7 @@ from workforce.tasks import Workforce
 
 EXPECTED = {"workforce_doctor", "list_roles", "delegate_task", "get_task", "task_diff",
             "verify_task", "revise_task", "list_tasks", "cancel_task", "merge_task",
-            "cleanup_task", "allow_project"}
+            "cleanup_task", "allow_project", "wait_task"}
 
 
 def _call(name, args):
@@ -41,3 +41,23 @@ def test_errors_come_back_as_data(cfg_root, monkeypatch):
     roles = _call("list_roles", {})
     assert roles["roles"]["coder"]["writes_code"] is True
     assert roles["roles"]["research"]["writes_code"] is False
+
+
+def test_wait_task_returns_compact_status(cfg_root, monkeypatch):
+    from workforce.ledger import Task, new_task_id
+
+    wf = Workforce(load_settings(cfg_root))
+    monkeypatch.setattr(mcp_server, "_wf", wf)
+    monkeypatch.setattr(mcp_server, "_cfg_stamp", mcp_server._config_stamp())
+    done = wf.ledger.create(Task(id=new_task_id(), role="research", engine="crew",
+                                 status="done", title="t", instructions="x",
+                                 verification={"summary": "PASSED: pytest=pass"}))
+    out = _call("wait_task", {"task_ids": [done.id], "max_wait_seconds": 30})
+    assert out["tasks"][done.id]["status"] == "done" and not out["still_running"]
+    assert out["tasks"][done.id]["checks"] == "PASSED: pytest=pass"
+
+    running = wf.ledger.create(Task(id=new_task_id(), role="research", engine="crew",
+                                    status="queued", title="t", instructions="x"))
+    out = _call("wait_task", {"task_ids": [done.id, running.id], "max_wait_seconds": 1})
+    assert out["still_running"] == [running.id]
+    assert "error" in _call("wait_task", {"task_ids": ["nope"]})

@@ -23,7 +23,8 @@ Loop for every request:
    Difficulty is picked automatically (light/standard/heavy); override it when you know better.
    A project must be allowed first: if delegate_task says so, ask the user, then allow_project.
 3. Delegate: delegate_task with precise instructions, context_files and acceptance_criteria.
-   Tasks run in the background; poll get_task (local models can take minutes).
+   Don't ask the user before delegating. Independent tasks may be delegated together.
+   Then call wait_task (ONE call that blocks until done) instead of polling get_task.
 4. Verify independently: the worker's report is only a CLAIM. Read task_diff, look hard at
    'review_closely' files (tests/config changed?), run the checks yourself (verify_task, or
    your own commands inside the task worktree; use Playwright for UI).
@@ -126,7 +127,7 @@ def delegate_task(role: str, instructions: str, project_path: str | None = None,
         return {"task_id": t.id, "status": t.status, "engine": t.engine, "write": t.write,
                 "difficulty": t.tier, "difficulty_why": t.tier_reason,
                 "worktree": t.worktree, "branch": t.branch,
-                "next_step": "poll get_task(task_id) until status is done or failed"}
+                "next_step": "wait_task([task_id]) until it is done or failed"}
     return _safe(run)
 
 
@@ -135,6 +136,38 @@ def get_task(task_id: str) -> dict:
     """Status, the worker's report (a CLAIM), changed files, files to review closely,
     last verification results, events and the suggested next step."""
     return _safe(_workforce().details, task_id)
+
+
+@mcp.tool()
+async def wait_task(task_ids: list[str], max_wait_seconds: int = 540) -> dict:
+    """Wait until the given tasks finish (or max_wait_seconds pass), then return a compact
+    status for each. Use this instead of polling get_task: one call, few tokens.
+    If some are still running when it returns, just call wait_task again."""
+    import asyncio
+    import time
+
+    from workforce.ledger import ACTIVE
+
+    wf = _workforce()
+    deadline = time.monotonic() + max(1, min(max_wait_seconds, 3600))
+    while True:
+        try:
+            tasks = [wf.get(t) for t in task_ids]
+        except TaskError as exc:
+            return {"error": str(exc)}
+        if all(t.status not in ACTIVE for t in tasks) or time.monotonic() >= deadline:
+            break
+        await asyncio.sleep(3)
+    out = {}
+    for t in tasks:
+        v = t.verification or {}
+        out[t.id] = {"status": t.status, "difficulty": t.tier, "model_used": t.model_used,
+                     "seconds": t.seconds, "checks": v.get("summary"),
+                     "error": (t.error or "")[:300] or None}
+    pending = [i for i, s in out.items() if s["status"] in ACTIVE]
+    return {"tasks": out, "still_running": pending,
+            "next_step": "call wait_task again for still_running" if pending else
+            "get_task for details, then task_diff(paths=...) to verify"}
 
 
 @mcp.tool()
@@ -167,7 +200,7 @@ def revise_task(task_id: str, feedback: str) -> dict:
     def run():
         t = _workforce().revise(task_id, feedback)
         return {"task_id": t.id, "status": t.status, "revision": t.revision,
-                "next_step": "poll get_task"}
+                "next_step": "wait_task([task_id])"}
     return _safe(run)
 
 

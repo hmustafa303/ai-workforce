@@ -460,7 +460,7 @@ class Workforce:
 
     def _next_step(self, t: Task) -> str:
         if t.status in ACTIVE:
-            return "wait, then call get_task again"
+            return "call wait_task([id]) (one blocking call, no polling)"
         if t.status == "failed":
             return ("read 'error'; revise_task with a fix hint, or do it yourself"
                     if t.revision < self.settings.policies.tasks.max_revisions

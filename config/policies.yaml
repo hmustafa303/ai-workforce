@@ -10,10 +10,10 @@ paths:
   workspace_dir: workspace          # per-task git worktrees
   runs_dir: runs                    # outputs + logs
   ledger_db: runs/ledger.sqlite3    # task ledger
-  # Projects that workers are allowed to READ. Add your project folders here
-  # (needed from Phase 5). Example:
-  #   - C:/Users/Hammad/Projects/my-app
-  allowed_project_roots: []
+  # Git projects workers may work on: a project folder, or a parent folder (every git repo
+  # inside it). Only git repos are used, never other files. Add more with `workforce allow`.
+  allowed_project_roots:
+    - C:/Users/Hammad/Desktop
   # Files workers must never read, even inside an allowed project
   denied_globs:
     - "**/.env"

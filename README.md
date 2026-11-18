@@ -109,7 +109,8 @@ edits are cheaper for Claude to do directly than to delegate and review.
 
 ### MCP tools Claude gets (in every project)
 `workforce_doctor`, `list_roles`, `delegate_task`, `get_task`, `task_diff`, `verify_task`,
-`revise_task`, `list_tasks`, `cancel_task`, `merge_task`, `cleanup_task`, `allow_project`.
+`revise_task`, `list_tasks`, `cancel_task`, `merge_task`, `cleanup_task`, `allow_project`,
+`wait_task` (one blocking call instead of polling: saves Claude tokens).
 Prompts: `/mcp__workforce__delegate`, `/mcp__workforce__verify`.
 The Parent's operating rules ride along in the server's instructions, so they apply in every project.
 

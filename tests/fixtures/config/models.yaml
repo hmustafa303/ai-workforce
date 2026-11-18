@@ -1,0 +1,30 @@
+# Frozen baseline for tests. Do NOT edit to match config/models.yaml:
+# tests must not depend on which real models are currently chosen.
+providers:
+  gemini:
+    type: gemini
+    api_key_env: GEMINI_API_KEY
+    trains_on_prompts: true
+  ollama:
+    type: ollama
+    local: true
+    base_url: http://localhost:11434
+    base_url_env: OLLAMA_BASE_URL
+    timeout_seconds: 600
+  groq:
+    type: groq
+    enabled: false
+    api_key_env: GROQ_API_KEY
+    base_url: https://api.groq.com/openai/v1
+
+models:
+  cloud_fast:    {provider: gemini, model: null, temperature: 0.3}
+  cloud_code:    {provider: gemini, model: null, temperature: 0.1}
+  local_general: {provider: ollama, model: null, temperature: 0.3}
+  local_coder:   {provider: ollama, model: null, temperature: 0.1}
+
+chains:
+  research: [cloud_fast, local_general]
+  coding:   [cloud_code, local_coder]
+  uiux:     [cloud_fast, local_general]
+  qa:       [local_general, cloud_fast]

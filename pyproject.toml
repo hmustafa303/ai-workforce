@@ -1,0 +1,40 @@
+[project]
+name = "ai-workforce"
+version = "0.1.0"
+description = "Claude Code (parent) + CrewAI child workers on free/local models"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "crewai[google-genai]>=1.15,<2",
+    "mcp>=1.30,<2",
+    "pydantic>=2.7,<3",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "ddgs>=9.16,<10",
+]
+
+[project.scripts]
+workforce = "workforce.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/workforce"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

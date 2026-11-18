@@ -1,0 +1,22 @@
+# CLI tool workers ("engines"): complete AI coding tools run headless.
+# They use their OWN login (not keys from .env) and always run with the task
+# worktree as their working directory. API keys and tokens are stripped from
+# their environment.
+#
+# NOT allowed here: Gemini CLI / Antigravity on a Google login. Google's terms
+# forbid driving them from third-party tools like Claude Code (account suspension risk).
+
+engines:
+  codex:
+    type: codex
+    binary: null            # null = auto-detect (PATH, then the VS Code ChatGPT extension)
+    model: null             # null = your ChatGPT plan's default model
+    timeout_seconds: 1200
+
+  cursor:
+    # READ-ONLY on Windows (planning, review, analysis). Live tests showed its
+    # writes cannot be confined to the task folder here; the adapter refuses write mode.
+    type: cursor
+    binary: null            # null = auto-detect node.exe in %LOCALAPPDATA%\cursor-agent\versions
+    model: null
+    timeout_seconds: 1200

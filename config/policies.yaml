@@ -1,0 +1,33 @@
+# Safety and execution limits for the workforce.
+
+tasks:
+  max_revisions: 3          # Parent feedback rounds before escalating to you
+  timeout_seconds: 1800     # local CPU models are slow; 30 min ceiling per task
+  max_concurrent: 1         # CPU-only PC: run one worker at a time
+  verify_timeout_seconds: 900  # per verification command (tests, build, ...)
+
+paths:
+  workspace_dir: workspace          # per-task git worktrees
+  runs_dir: runs                    # outputs + logs
+  ledger_db: runs/ledger.sqlite3    # task ledger
+  # Projects that workers are allowed to READ. Add your project folders here
+  # (needed from Phase 5). Example:
+  #   - C:/Users/Hammad/Projects/my-app
+  allowed_project_roots: []
+  # Files workers must never read, even inside an allowed project
+  denied_globs:
+    - "**/.env"
+    - "**/.env.*"
+    - "**/*.pem"
+    - "**/*.key"
+    - "**/id_rsa*"
+    - "**/.git/**"
+    - "**/node_modules/**"
+    - "**/.venv/**"
+
+privacy:
+  default_local_only: false   # true = never send code to cloud models
+  local_only_projects: []     # these projects always use local (Ollama) models
+
+merge:
+  require_user_approval: true # Claude must ask you before merging worker output

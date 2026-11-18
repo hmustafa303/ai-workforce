@@ -1,0 +1,38 @@
+# Model providers, logical model names, and fallback chains.
+# Agents refer to a *chain*; the router (Phase 2) tries each model in order.
+# `model: null` = not chosen yet. Phase 2 fills these after checking what your
+# Gemini key can use and benchmarking Ollama models on this PC.
+
+providers:
+  gemini:
+    type: gemini
+    # Disabled 2026-11-18: the current key's project returns 403 "free tier
+    # not available for this project". Re-enable with a key from an eligible project.
+    enabled: false
+    api_key_env: GEMINI_API_KEY
+    trains_on_prompts: true      # free tier: Google may use prompts to improve products
+  ollama:
+    type: ollama
+    local: true
+    base_url: http://localhost:11434
+    base_url_env: OLLAMA_BASE_URL
+    timeout_seconds: 600         # CPU-only inference is slow
+  groq:
+    type: groq
+    api_key_env: GROQ_API_KEY
+    base_url: https://api.groq.com/openai/v1
+
+models:
+  # Chosen 2026-11-18 with `workforce probe` (real test prompts) and `workforce bench`.
+  cloud_fast:    {provider: groq,   model: qwen/qwen3.8-27b,    temperature: 0.3}
+  cloud_code:    {provider: groq,   model: openai/gpt-oss-120b, temperature: 0.1}
+  local_general: {provider: ollama, model: llama3.2:3b,         temperature: 0.3}
+  local_coder:   {provider: ollama, model: qwen2.5-coder:3b,    temperature: 0.1}
+  # Local benchmark on Ryzen 5 7430U, CPU only (gen tokens/s): qwen2.5-coder:3b 17.0,
+  # llama3.2:3b 15.7, qwen3.5:4b 9.4 (slower, but use it when quality matters)
+
+chains:
+  research: [cloud_fast, local_general]
+  coding:   [cloud_code, local_coder]
+  uiux:     [cloud_fast, local_general]
+  qa:       [local_general, cloud_fast]

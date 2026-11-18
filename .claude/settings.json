@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Edit(./.env)",
+      "Edit(./.env.local)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Bash(cat .env:*)",
+      "Bash(type .env:*)",
+      "Bash(Get-Content .env:*)",
+      "Bash(git push --force:*)"
+    ],
+    "allow": [
+      "Bash(uv run python -m workforce doctor:*)",
+      "Bash(uv run python -m workforce config:*)",
+      "Bash(uv run python -m pytest:*)",
+      "Bash(uv run python -m ruff check:*)",
+      "PowerShell(uv run python -m workforce doctor:*)",
+      "PowerShell(uv run python -m workforce config:*)",
+      "PowerShell(uv run python -m pytest:*)",
+      "PowerShell(uv run python -m ruff check:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git worktree list:*)"
+    ]
+  }
+}
